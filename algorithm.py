@@ -1,77 +1,226 @@
 # ==========================================
 # SEATING ALGORITHM - VERTICAL FILLING
+# WITH SMART 3-BRANCH DIAGONAL PATTERN
 # ==========================================
-import random
+
 def generate_seating(branch_names, students_by_branch, rooms):
 
     allotment = []
 
-    # Copy all students branch-wise
+    # --------------------------------------
+    # Copy students branch-wise
+    # --------------------------------------
     branches = {}
 
     for b in branch_names:
         branches[b] = students_by_branch.get(b, []).copy()
 
-    # Branches having students
+    # --------------------------------------
+    # Active branches
+    # --------------------------------------
     active = []
 
     for b in branch_names:
         if len(branches[b]) > 0:
             active.append(b)
-    random.shuffle(active)
+
     if len(active) == 0:
         return allotment
 
-    # Initial Pattern
+    # --------------------------------------
+    # Initial 4-Branch Pattern
+    # --------------------------------------
     pairA = [0, 1]
     pairB = [2, 3]
 
     next_branch = 4
 
-    # Room Loop
+    # --------------------------------------
+    # 3 Branch Mode Controller
+    # --------------------------------------
+    three_branch_pattern = None
+
+    # --------------------------------------
+    # ROOM LOOP
+    # --------------------------------------
     for room in rooms:
 
         room_id = room["room_id"]
         rows = room["num_rows"]
         cols = room["num_cols"]
 
+        # ----------------------------------
         # COLUMN FIRST (Vertical Seating)
+        # ----------------------------------
         for c in range(1, cols + 1):
 
             for r in range(1, rows + 1):
 
-                if r % 2 == 1:
-                    current_pair = pairA
-                else:
-                    current_pair = pairB
+                # ----------------------------------
+                # Find Remaining Branches
+                # ----------------------------------
+                remaining = []
 
-                if c % 2 == 1:
-                    pos = 0
-                else:
-                    pos = 1
+                for b in active:
+                    if len(branches[b]) > 0:
+                        remaining.append(b)
 
-                index = current_pair[pos]
-
-                if index >= len(active):
+                if len(remaining) == 0:
                     continue
 
-                branch = active[index]
+                branch = None
 
-                # Replace finished branch
-                while len(branches[branch]) == 0:
+                # ==================================================
+                # 4 BRANCH MODE
+                # ==================================================
+                if len(remaining) >= 4:
 
-                    if next_branch >= len(active):
+                    # Reset 3-branch mode
+                    three_branch_pattern = None
+
+                    if r % 2 == 1:
+                        current_pair = pairA
+                    else:
+                        current_pair = pairB
+
+                    pos = 0 if c % 2 == 1 else 1
+
+                    index = current_pair[pos]
+
+                    if index >= len(active):
+                        continue
+
+                    branch = active[index]
+
+                    while len(branches[branch]) == 0:
+
+                        if next_branch >= len(active):
+                            break
+
+                        current_pair[pos] = next_branch
+
+                        index = current_pair[pos]
+                        branch = active[index]
+
+                        next_branch += 1
                         break
 
-                    current_pair[pos] = next_branch
-                    index = current_pair[pos]
-                    branch = active[index]
-                    next_branch += 1
+                    if len(branches[branch]) == 0:
+                        continue
+
+                # ==================================================
+                # 3 BRANCH MODE
+                #
+                # Largest branch becomes diagonal branch
+                #
+                # Col1 : A B A B A B
+                # Col2 : C A C A C A
+                # Col3 : A B A B A B
+                # Col4 : C A C A C A
+                #
+                # Example:
+                #
+                # MECH EEE MECH EEE
+                # ECE  MECH ECE  MECH
+                # ==================================================
+                elif len(remaining) == 3:
+
+                    if three_branch_pattern is None:
+
+                        sorted_branches = sorted(
+                            remaining,
+                            key=lambda x: len(branches[x]),
+                            reverse=True
+                        )
+
+                        three_branch_pattern = {
+                            "A": sorted_branches[0],  # Largest
+                            "B": sorted_branches[1],
+                            "C": sorted_branches[2]
+                        }
+
+                    A = three_branch_pattern["A"]
+                    B = three_branch_pattern["B"]
+                    C = three_branch_pattern["C"]
+
+                    if c % 2 == 1:
+
+                        # Odd Columns
+                        if r % 2 == 1:
+                            branch = A
+                        else:
+                            branch = B
+
+                    else:
+
+                        # Even Columns
+                        if r % 2 == 1:
+                            branch = C
+                        else:
+                            branch = A
+
+                    # Fallback if one branch finishes
+                    if len(branches[branch]) == 0:
+
+                        remaining = [
+                            b for b in active
+                            if len(branches[b]) > 0
+                        ]
+
+                        if len(remaining) != 3:
+                            three_branch_pattern = None
+                            continue
+
+                # ==================================================
+                # 2 BRANCH MODE
+                #
+                # Checkerboard Pattern
+                # ==================================================
+                elif len(remaining) == 2:
+
+                    three_branch_pattern = None
+
+                    A = remaining[0]
+                    B = remaining[1]
+
+                    if (r + c) % 2 == 0:
+                        branch = A
+                    else:
+                        branch = B
+
+                # ==================================================
+                # 1 BRANCH MODE
+                # ==================================================
+                else:
+
+                    three_branch_pattern = None
+
+                    branch = remaining[0]
+
+                     # Odd columns -> Odd rows only
+                    if c % 2 == 1:
+
+                        if r % 2 == 0:
+                            continue
+
+                         # Even columns -> Even rows only
+                    else:
+
+                         if r % 2 == 1:
+                            continue
+
+                # ----------------------------------
+                # Safety Check
+                # ----------------------------------
+                if branch is None:
+                    continue
 
                 if len(branches[branch]) == 0:
                     continue
 
-                # Allocate student
+                # ----------------------------------
+                # Allocate Student
+                # ----------------------------------
                 student = branches[branch].pop(0)
 
                 seat = {
@@ -84,52 +233,5 @@ def generate_seating(branch_names, students_by_branch, rooms):
                 }
 
                 allotment.append(seat)
-
-                # Branch finished?
-                if c % 2 == 1:
-                    pos = 0
-                else:
-                    pos = 1
-
-                while len(branches[branch]) == 0:
-
-                    found = False
-
-                    while next_branch < len(active):
-
-                        if len(branches[active[next_branch]]) > 0:
-
-                            current_pair[pos] = next_branch
-                            index = next_branch
-                            branch = active[index]
-
-                            next_branch += 1
-                            found = True
-                            break
-
-                        next_branch += 1
-
-                    if not found:
-
-                        found = False
-
-                        for i in range(len(active)):
-
-                            if len(branches[active[i]]) > 0:
-
-                                if current_pair[1 - pos] != i:
-
-                                    current_pair[pos] = i
-                                    index = i
-                                    branch = active[i]
-
-                                    found = True
-                                    break
-
-                        if not found:
-                            break
-
-                if len(branches[branch]) == 0:
-                    continue
 
     return allotment
