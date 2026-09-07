@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <h1><title style="font-size:30px;">Seating Chart - Seating Arrangement</title></h1>
+    <title>Seating Chart - Seating Arrangement</title>
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
         body { font-family:'Segoe UI',Tahoma,sans-serif; background:#f0f4f8; color:#2d3748; min-height:100vh; }
@@ -76,6 +76,8 @@
         <a href="/upload_students">Students</a>
         <a href="/generate">Generate</a>
         <a href="/view_chart" class="active">View Chart</a>
+
+        {% if session.role == 'admin' %}<a href="/users">Users</a>{% endif %}
         <a href="/logout" class="logout">Logout</a>
     </nav>
 </div>

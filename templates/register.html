@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Seating Arrangement</title>
+    <style>
+        *{box-sizing:border-box}
+        body{margin:0;font-family:Segoe UI,Tahoma,sans-serif;background:#f0f4f8;min-height:100vh;display:flex;align-items:center;justify-content:center}
+        .card{width:520px;background:white;border-radius:14px;padding:32px;box-shadow:0 4px 20px rgba(0,0,0,.10)}
+        h2{text-align:center;color:#1a365d;margin:0 0 8px}
+        .subtitle{text-align:center;color:#718096;font-size:13px;margin-bottom:22px}
+        .note{background:#ebf4ff;color:#2b6cb0;padding:12px;border-radius:8px;font-size:13px;margin-bottom:18px}
+        .alert{padding:10px 12px;border-radius:7px;margin-bottom:14px;font-size:13px}
+        .alert-error{background:#fed7d7;color:#c53030}.alert-success{background:#c6f6d5;color:#276749}
+        label{display:block;font-size:12px;font-weight:600;color:#4a5568;margin:0 0 5px}
+        input{width:100%;padding:11px 13px;border:1.5px solid #e2e8f0;border-radius:8px;margin-bottom:14px;font-size:14px}
+        input:focus{outline:none;border-color:#2b6cb0}
+        button{width:100%;padding:12px;background:#2b6cb0;color:white;border:0;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer}
+        button:hover{background:#1a4f8a}
+        .back{text-align:center;margin-top:16px;font-size:13px}
+        .back a{color:#2b6cb0;text-decoration:none;font-weight:600}
+    </style>
+</head>
+<body>
+<div class="card">
+    <h2>Create Account</h2>
+    <div class="subtitle">Automatic Seating Arrangement System</div>
+
+    <div class="note">If this is the first account, it will become the <b>Admin</b>. Every later account will remain <b>Pending</b> until the Admin approves it.</div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <form method="POST">
+        <label>Full Name</label>
+        <input type="text" name="full_name" placeholder="Full Name" required>
+
+        <label>Username</label>
+        <input type="text" name="username" placeholder="Username (min 3 characters)" required>
+
+        <label>Email</label>
+        <input type="email" name="email" placeholder="Email Address" required>
+
+        <label>Password</label>
+        <input type="password" name="password" placeholder="Password (min 6 characters)" required>
+
+        <label>Confirm Password</label>
+        <input type="password" name="confirm_password" placeholder="Confirm Password" required>
+
+        <button type="submit">Submit Registration</button>
+    </form>
+
+    <div class="back"><a href="{{ url_for('login') }}">← Back to Login</a></div>
+</div>
+</body>
+</html>

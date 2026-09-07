@@ -1,5 +1,5 @@
 Flask
-gunicorn
 mysql-connector-python
+Werkzeug
+pandas
 openpyxl
-mysql-connector-python==9.2.0

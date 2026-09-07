@@ -18,6 +18,9 @@
         <a href="{{ url_for('upload_students') }}" {% if request.endpoint=='upload_students' %}class="active"{% endif %}>Students</a>
         <a href="{{ url_for('generate') }}"  {% if request.endpoint=='generate' %}class="active"{% endif %}>Generate</a>
         <a href="{{ url_for('view_chart') }}" {% if request.endpoint=='view_chart' %}class="active"{% endif %}>View Chart</a>
+        {% if session.role == 'admin' %}
+        <a href="{{ url_for('manage_users') }}" {% if request.endpoint=='manage_users' %}class="active"{% endif %}>Users</a>
+        {% endif %}
         <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
     </nav>
 </div>

@@ -326,63 +326,17 @@
             </form>
 
             <div class="create-row">
-                Don't have an account?
-                <button onclick="showPanel('register')">Create New Account</button>
+                Need an account?
+                <a href="{{ url_for('register') }}" style="color:#1e4db7;font-weight:600;text-decoration:none;">
+                    Register here
+                </a>
+                <div style="font-size:11px;color:#a0aec0;margin-top:5px;">
+                    Your account will work after Admin approval.
+                </div>
             </div>
         </div>
 
-        <!-- ======== PANEL 2: CREATE USER ======== -->
-        <div id="panel-register" style="display:none; width:100%">
-            <div class="page-title">Create Account</div>
-
-            <form method="POST" action="/register" style="width:100%">
-                <div class="form-group">
-                    <input type="text" name="full_name" placeholder="Full Name" required>
-                </div>
-                <div class="form-group">
-                    <input type="text" name="new_username"
-                           placeholder="Username (min 3 characters)" required
-                           oninput="chkUser(this.value)">
-                    <div class="match-txt" id="uc"></div>
-                </div>
-                <div class="form-group">
-                    <input type="email" name="email"
-                           placeholder="Email Address" required>
-                </div>
-                <div class="form-group">
-                    <div class="pw-wrap">
-                        <input type="password" name="new_password" id="rp"
-                               placeholder="Password (min 6 characters)" required
-                               oninput="chkStr(this.value)">
-                        <button type="button" class="eye" onclick="togPw('rp',this)">👁</button>
-                    </div>
-                    <div class="str-bar"><div class="str-fill" id="sf"></div></div>
-                    <div class="str-txt" id="st"></div>
-                </div>
-                <div class="form-group">
-                    <div class="pw-wrap">
-                        <input type="password" name="confirm_password" id="cp"
-                               placeholder="Confirm Password" required
-                               oninput="chkMatch()">
-                        <button type="button" class="eye" onclick="togPw('cp',this)">👁</button>
-                    </div>
-                    <div class="match-txt" id="mt"></div>
-                </div>
-                <div class="form-group">
-                    <select name="role">
-                        <option value="teacher">Teacher</option>
-                        <option value="admin">Admin</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn-green">➕ Create Account</button>
-            </form>
-
-            <div class="back-link">
-                <button onclick="showPanel('login')">← Back to Login</button>
-            </div>
-        </div>
-
-        <!-- ======== PANEL 3: FORGOT PASSWORD ======== -->
+        <!-- ======== PANEL 2: FORGOT PASSWORD ======== -->
         <div id="panel-forgot" style="display:none; width:100%">
 
             {% if not show_reset %}
@@ -435,7 +389,7 @@
 <script>
 /* Show/hide panels */
 function showPanel(name) {
-    ['login','register','forgot'].forEach(p => {
+    ['login','forgot'].forEach(p => {
         document.getElementById('panel-'+p).style.display = p===name ? 'block':'none';
     });
 }
@@ -447,28 +401,7 @@ function togPw(id, btn) {
     btn.textContent = inp.type==='password' ? '👁':'🙈';
 }
 
-/* Password strength */
-function chkStr(val) {
-    const fill = document.getElementById('sf');
-    const txt  = document.getElementById('st');
-    let score = 0;
-    if(val.length>=6) score++;
-    if(val.length>=10) score++;
-    if(/[A-Z]/.test(val)) score++;
-    if(/[0-9]/.test(val)) score++;
-    if(/[^A-Za-z0-9]/.test(val)) score++;
-    const lvls=[
-        {w:'0%',c:'#e2e8f0',l:''},
-        {w:'25%',c:'#e53e3e',l:'Weak'},
-        {w:'50%',c:'#f6ad55',l:'Fair'},
-        {w:'75%',c:'#68d391',l:'Good'},
-        {w:'100%',c:'#38a169',l:'Strong 💪'},
-    ];
-    const lv=lvls[Math.min(score,4)];
-    fill.style.width=lv.w; fill.style.background=lv.c;
-    txt.textContent=lv.l; txt.style.color=lv.c;
-}
-
+/* Password strength (used on the reset-password panel) */
 function chkStr2(val) {
     const fill=document.getElementById('sf2');
     let score=0;
@@ -487,27 +420,7 @@ function chkStr2(val) {
     fill.style.width=lv.w; fill.style.background=lv.c;
 }
 
-/* Password match */
-function chkMatch() {
-    const p1=document.getElementById('rp').value;
-    const p2=document.getElementById('cp').value;
-    const el=document.getElementById('mt');
-    if(!p2){el.textContent='';return;}
-    if(p1===p2){el.textContent='✅ Passwords match!';el.style.color='#38a169';}
-    else{el.textContent='❌ Passwords do not match';el.style.color='#e53e3e';}
-}
-
-/* Username check */
-function chkUser(val) {
-    const el=document.getElementById('uc');
-    if(!val){el.textContent='';return;}
-    if(val.length<3){el.textContent='⚠️ Min 3 characters';el.style.color='#e53e3e';}
-    else if(/^[a-zA-Z0-9_]+$/.test(val)){el.textContent='✅ Looks good!';el.style.color='#38a169';}
-    else{el.textContent='⚠️ Only letters, numbers, underscore';el.style.color='#e53e3e';}
-}
-
 /* Auto switch panel from Flask */
-{% if active_tab == 'register' %}showPanel('register');{% endif %}
 {% if active_tab == 'forgot' %}showPanel('forgot');{% endif %}
 {% if show_reset %}showPanel('forgot');{% endif %}
 </script>

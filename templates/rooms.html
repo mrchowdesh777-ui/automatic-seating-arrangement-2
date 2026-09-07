@@ -79,6 +79,8 @@
         <a href="/upload_students">Students</a>
         <a href="/generate">Generate</a>
         <a href="/view_chart">View Chart</a>
+
+        {% if session.role == 'admin' %}<a href="/users">Users</a>{% endif %}
         <a href="/logout" class="logout">Logout</a>
     </nav>
 </div>

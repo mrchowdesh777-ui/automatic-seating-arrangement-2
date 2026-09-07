@@ -1,19 +1,40 @@
 # ============================================
 # AUTOMATIC SEATING ARRANGEMENT SYSTEM
 # app.py - Updated with Create User + Forgot Password
+# SECURITY HARDENED VERSION
 # ============================================
+
 import os
-import traceback
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+import time
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 import mysql.connector
 import csv
 import io
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from algorithm import generate_seating
 
 app = Flask(__name__)
-app.secret_key = "seating_secret_key_2024"
+
+# ---- SECRET KEY ----
+# Never hardcode this. Set it as an environment variable before running:
+#   Windows (cmd):   set SEATING_SECRET_KEY=some-long-random-string
+#   Windows (ps):    $env:SEATING_SECRET_KEY="some-long-random-string"
+#   Linux/Mac:       export SEATING_SECRET_KEY=some-long-random-string
+# If it's not set, a random key is generated each run (this will log
+# everyone out whenever the server restarts, which is fine for local
+# testing but NOT what you want in real deployment).
+app.secret_key = os.environ.get("SEATING_SECRET_KEY") or os.urandom(32).hex()
+
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+
+# ---- SESSION / COOKIE HARDENING ----
+app.config['SESSION_COOKIE_HTTPONLY'] = True     # JS on the page can't read the cookie
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'    # blocks most cross-site request forgery
+# Only send the cookie over HTTPS. Turn this on once you deploy behind HTTPS
+# (leave it False for local http://localhost testing, or the cookie won't be sent at all).
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get("SEATING_HTTPS", "false").lower() == "true"
 
 ALLOWED_EXTENSIONS = {'csv', 'txt', 'xlsx'}
 
@@ -21,19 +42,71 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_db():
-    return mysql.connector.connect(
-        host="mysql-12f67626-mrchowdesh777-08c5.g.aivencloud.com",
-        port=14476,
-        user="avnadmin",
-        password=os.environ.get("DB_PASSWORD"),
-        database="defaultdb",
-        ssl_disabled=False,
-        ssl_verify_cert=False
+    db = mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="seating_db"
     )
-    
     return db
 
+# ============================================
+# ACCESS CONTROL HELPERS
+# ============================================
+def login_required(view_func):
+    """Blocks the route unless someone is logged in."""
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login'))
+        return view_func(*args, **kwargs)
+    return wrapped
 
+def admin_required(view_func):
+    """Blocks the route unless the logged-in user's role is admin."""
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login'))
+        if session.get('role') != 'admin':
+            flash('You do not have permission to do that.', 'error')
+            return redirect(url_for('dashboard'))
+        return view_func(*args, **kwargs)
+    return wrapped
+
+# ============================================
+# BASIC LOGIN RATE LIMITING (brute-force guard)
+# ============================================
+# In-memory only (resets on restart). Good enough to stop naive password
+# guessing scripts. For a real deployment, use Flask-Limiter + Redis instead.
+_failed_attempts = {}   # key -> [count, locked_until_timestamp]
+MAX_ATTEMPTS = 5
+LOCKOUT_SECONDS = 60
+
+def _attempt_key():
+    # Track by username+IP so one bad actor can't lock out a real user forever,
+    # but repeated guesses against one account from anywhere still get slowed.
+    return f"{request.form.get('username','')}"
+
+def is_locked_out(key):
+    entry = _failed_attempts.get(key)
+    if not entry:
+        return False
+    count, locked_until = entry
+    if locked_until and time.time() < locked_until:
+        return True
+    return False
+
+def register_failed_attempt(key):
+    count, locked_until = _failed_attempts.get(key, [0, 0])
+    count += 1
+    if count >= MAX_ATTEMPTS:
+        locked_until = time.time() + LOCKOUT_SECONDS
+        count = 0
+    _failed_attempts[key] = [count, locked_until]
+
+def clear_failed_attempts(key):
+    _failed_attempts.pop(key, None)
 
 # ============================================
 # ROUTE 1: LOGIN
@@ -43,30 +116,40 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
+        key = _attempt_key()
 
-        try:
-            db = get_db()
-            cursor = db.cursor(dictionary=True)
+        if is_locked_out(key):
+            flash('Too many failed attempts. Please wait a minute and try again.', 'error')
+            return render_template('login.html', active_tab='login')
 
-            cursor.execute(
-                "SELECT * FROM users WHERE username=%s AND password=%s",
-                (username, password)
-            )
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
 
-            user = cursor.fetchone()
-            db.close()
+        # Look up the user by username only — never put the password in the
+        # SQL query. Compare it separately against the stored hash.
+        cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
+        user = cursor.fetchone()
+        db.close()
 
-            if user:
-                session['logged_in'] = True
-                session['username'] = user['username']
-                session['full_name'] = user['full_name']
-                session['role'] = user['role']
-                return redirect(url_for('dashboard'))
-            else:
-                flash('Invalid username or password!', 'error')
-
-        except Exception as e:
-            return str(e)
+        if user and check_password_hash(user['password'], password):
+            if user.get('status', 'approved') != 'approved':
+                clear_failed_attempts(key)
+                if user.get('status') == 'rejected':
+                    flash('Your registration was rejected by the Admin.', 'error')
+                else:
+                    flash('Your account is waiting for Admin approval.', 'error')
+                return render_template('login.html', active_tab='login')
+            clear_failed_attempts(key)
+            session.clear()
+            session['logged_in'] = True
+            session['user_id']   = user['user_id']
+            session['username']  = user['username']
+            session['full_name'] = user['full_name']
+            session['role']      = user['role']
+            return redirect(url_for('dashboard'))
+        else:
+            register_failed_attempt(key)
+            flash('Invalid username or password!', 'error')
 
     return render_template('login.html', active_tab='login')
 
@@ -79,60 +162,154 @@ def logout():
     return redirect(url_for('login'))
 
 # ============================================
-# ROUTE 3: CREATE USER (Register)
+# ROUTE 3: USER MANAGEMENT (Admin only)
 # ============================================
-@app.route('/register', methods=['POST'])
-def register():
-    full_name        = request.form['full_name'].strip()
-    new_username     = request.form['new_username'].strip()
-    email            = request.form['email'].strip()
-    new_password     = request.form['new_password']
-    confirm_password = request.form['confirm_password']
-    role             = request.form['role']
-
-    # ---- Validations ----
-    if len(new_username) < 3:
-        flash('Username must be at least 3 characters!', 'error')
-        return render_template('login.html', active_tab='register')
-
-    if new_password != confirm_password:
-        flash('Passwords do not match!', 'error')
-        return render_template('login.html', active_tab='register')
-
-    if len(new_password) < 6:
-        flash('Password must be at least 6 characters!', 'error')
-        return render_template('login.html', active_tab='register')
-
+@app.route('/users', methods=['GET', 'POST'])
+@admin_required
+def manage_users():
     db = get_db()
     cursor = db.cursor(dictionary=True)
 
-    # Check username duplicate
-    cursor.execute("SELECT * FROM users WHERE username=%s", (new_username,))
-    if cursor.fetchone():
-        flash(f'Username "{new_username}" already exists!', 'error')
-        db.close()
-        return render_template('login.html', active_tab='register')
+    if request.method == 'POST':
+        action = request.form.get('action')
 
-    # Check email duplicate
-    cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
-    if cursor.fetchone():
-        flash('This email is already registered!', 'error')
-        db.close()
-        return render_template('login.html', active_tab='register')
+        if action == 'add':
+            # Accounts created directly by an Admin are approved immediately.
+            full_name        = request.form['full_name'].strip()
+            new_username     = request.form['new_username'].strip()
+            email            = request.form['email'].strip()
+            new_password     = request.form['new_password']
+            confirm_password = request.form['confirm_password']
+            role             = request.form['role']
 
-    # Insert new user
-    cursor.execute(
-        "INSERT INTO users (full_name, username, email, password, role) VALUES (%s,%s,%s,%s,%s)",
-        (full_name, new_username, email, new_password, role)
-    )
-    db.commit()
+            if role not in ('teacher', 'admin'):
+                role = 'teacher'
+
+            if len(new_username) < 3:
+                flash('Username must be at least 3 characters!', 'error')
+            elif new_password != confirm_password:
+                flash('Passwords do not match!', 'error')
+            elif len(new_password) < 6:
+                flash('Password must be at least 6 characters!', 'error')
+            else:
+                cursor.execute("SELECT * FROM users WHERE username=%s", (new_username,))
+                if cursor.fetchone():
+                    flash(f'Username "{new_username}" already exists!', 'error')
+                else:
+                    cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+                    if cursor.fetchone():
+                        flash('This email is already registered!', 'error')
+                    else:
+                        hashed = generate_password_hash(new_password)
+                        cursor.execute(
+                            """INSERT INTO users
+                               (full_name, username, email, password, role, status)
+                               VALUES (%s,%s,%s,%s,%s,'approved')""",
+                            (full_name, new_username, email, hashed, role)
+                        )
+                        db.commit()
+                        flash(f'User "{new_username}" created and approved!', 'success')
+
+        elif action == 'approve':
+            user_id = request.form['user_id']
+            cursor.execute(
+                "UPDATE users SET status='approved' WHERE user_id=%s",
+                (user_id,)
+            )
+            db.commit()
+            flash('User approved successfully!', 'success')
+
+        elif action == 'reject':
+            user_id = request.form['user_id']
+            # Keep the record so the Admin can see that the request was rejected.
+            cursor.execute(
+                "UPDATE users SET status='rejected' WHERE user_id=%s AND role='teacher'",
+                (user_id,)
+            )
+            db.commit()
+            flash('User registration rejected!', 'success')
+
+        elif action == 'delete':
+            user_id = request.form['user_id']
+            if str(user_id) == str(session.get('user_id')):
+                flash("You can't delete your own account while logged in as it.", 'error')
+            else:
+                cursor.execute("DELETE FROM users WHERE user_id=%s", (user_id,))
+                db.commit()
+                flash('User deleted!', 'success')
+
+    cursor.execute("""SELECT user_id, full_name, username, email, role, status, created_at
+                      FROM users ORDER BY
+                      CASE WHEN status='pending' THEN 0 ELSE 1 END, user_id""")
+    all_users = cursor.fetchall()
     db.close()
-
-    flash(f'User "{new_username}" created successfully! They can now login.', 'success')
-    return render_template('login.html', active_tab='register')
+    return render_template('users.html', users=all_users)
 
 # ============================================
-# ROUTE 4: FORGOT PASSWORD - Verify identity
+# ROUTE 4: NEW USER REGISTRATION
+# ============================================
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        full_name = request.form['full_name'].strip()
+        username = request.form['username'].strip()
+        email = request.form['email'].strip()
+        password = request.form['password']
+        confirm_password = request.form['confirm_password']
+
+        if len(username) < 3:
+            flash('Username must be at least 3 characters!', 'error')
+        elif password != confirm_password:
+            flash('Passwords do not match!', 'error')
+        elif len(password) < 6:
+            flash('Password must be at least 6 characters!', 'error')
+        else:
+            db = get_db()
+            cursor = db.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM users WHERE username=%s", (username,))
+            username_exists = cursor.fetchone()
+            cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+            email_exists = cursor.fetchone()
+
+            if username_exists:
+                flash('Username already exists!', 'error')
+            elif email_exists:
+                flash('This email is already registered!', 'error')
+            else:
+                # The very first registered account becomes the initial Admin.
+                # Every later self-registered account is a Teacher and must be
+                # approved by an existing Admin before it can log in.
+                cursor.execute("SELECT COUNT(*) AS user_count FROM users")
+                user_count = cursor.fetchone()['user_count']
+
+                hashed = generate_password_hash(password)
+                if user_count == 0:
+                    role = 'admin'
+                    status = 'approved'
+                    success_message = 'First account created as Admin. You can now log in.'
+                else:
+                    role = 'teacher'
+                    status = 'pending'
+                    success_message = 'Registration submitted! Please wait for Admin approval before logging in.'
+
+                cursor.execute(
+                    """INSERT INTO users
+                       (full_name, username, email, password, role, status)
+                       VALUES (%s,%s,%s,%s,%s,%s)""",
+                    (full_name, username, email, hashed, role, status)
+                )
+                db.commit()
+                db.close()
+                flash(success_message, 'success')
+                return redirect(url_for('login'))
+
+            db.close()
+
+    return render_template('register.html')
+
+# ============================================
+# ROUTE 5: FORGOT PASSWORD - Verify identity
+# ============================================
 # ============================================
 @app.route('/forgot_password', methods=['POST'])
 def forgot_password():
@@ -182,12 +359,13 @@ def reset_password():
 
     # Get username from session and clear it
     username = session.pop('reset_user')
+    hashed = generate_password_hash(new_password)
 
     db = get_db()
     cursor = db.cursor(dictionary=True)
     cursor.execute(
         "UPDATE users SET password=%s WHERE username=%s",
-        (new_password, username)
+        (hashed, username)
     )
     db.commit()
     db.close()
@@ -199,9 +377,8 @@ def reset_password():
 # ROUTE 6: DASHBOARD
 # ============================================
 @app.route('/dashboard')
+@login_required
 def dashboard():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     db = get_db()
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT COUNT(*) as count FROM rooms")
@@ -221,9 +398,8 @@ def dashboard():
 # ROUTE 7: ROOMS
 # ============================================
 @app.route('/rooms', methods=['GET', 'POST'])
+@login_required
 def rooms():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     db = get_db()
     cursor = db.cursor(dictionary=True)
     if request.method == 'POST':
@@ -257,9 +433,8 @@ def rooms():
 # ROUTE 8: BRANCHES
 # ============================================
 @app.route('/branches', methods=['GET', 'POST'])
+@login_required
 def branches():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     db = get_db()
     cursor = db.cursor(dictionary=True)
     if request.method == 'POST':
@@ -290,9 +465,8 @@ def branches():
 # ROUTE 9: UPLOAD STUDENTS (Paste)
 # ============================================
 @app.route('/upload_students', methods=['GET', 'POST'])
+@login_required
 def upload_students():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     db = get_db()
     cursor = db.cursor(dictionary=True)
     if request.method == 'POST':
@@ -316,9 +490,8 @@ def upload_students():
 # ROUTE 10: UPLOAD FILE (CSV/Excel)
 # ============================================
 @app.route('/upload_file', methods=['POST'])
+@login_required
 def upload_file():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     branch_id = request.form.get('branch_id')
     if not branch_id:
         flash('Please select a branch!', 'error')
@@ -369,113 +542,48 @@ def upload_file():
 
 # ============================================
 # ROUTE 11: GENERATE SEATING PLAN
-# ===========================
+# ============================================
 @app.route('/generate', methods=['GET', 'POST'])
-@app.route('/generate', methods=['GET', 'POST'])
+@login_required
 def generate():
-
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-
     db = get_db()
     cursor = db.cursor(dictionary=True)
-
-    try:
-
-        # Clear old allotment
+    if request.method == 'POST':
         cursor.execute("DELETE FROM allotment")
-
-        # Get branch names
-        cursor.execute("""
-            SELECT branch_name
-            FROM branches
-            ORDER BY branch_id
-        """)
-        branch_rows = cursor.fetchall()
-        branch_names = [row["branch_name"] for row in branch_rows]
-
-        # Get students branch-wise
-        students_by_branch = {}
-
-        for branch in branch_names:
-
-            cursor.execute("""
-                SELECT s.student_id, s.pin_number
-                FROM students s
-                JOIN branches b
-                    ON s.branch_id = b.branch_id
-                WHERE b.branch_name = %s
-                ORDER BY s.student_id
-            """, (branch,))
-
-            students_by_branch[branch] = cursor.fetchall()
-
-        # Get rooms
-        cursor.execute("""
-            SELECT room_id, num_rows, num_cols
-            FROM rooms
-            ORDER BY room_id
-        """)
-        rooms = cursor.fetchall()
-
-        # Generate seating
-        allotment = generate_seating(
-            branch_names,
-            students_by_branch,
-            rooms
-        )
-
-        print("Total Seats Generated =", len(allotment))
-
-        # Prepare bulk insert
-        data = []
-
-        for seat in allotment:
-            data.append((
-                seat["room_id"],
-                seat["num_row"],
-                seat["num_col"],
-                seat["student_id"],
-                seat["pin"],
-                seat["branch"]
-            ))
-
-        if data:
-            cursor.executemany("""
-                INSERT INTO allotment
-                (room_id, row_no, col_no, student_id, pin_number, branch_name)
-                VALUES (%s,%s,%s,%s,%s,%s)
-            """, data)
-
         db.commit()
-
-        flash(f"{len(data)} seats allotted successfully!", "success")
-
-        return redirect(url_for("view_chart"))
-
-    except Exception as e:
-
-        db.rollback()
-
-        print("========== FULL ERROR ==========")
-        traceback.print_exc()
-
-        flash(str(e), "error")
-
-        return redirect(url_for("generate"))
-
-    finally:
-
-        cursor.close()
-        db.close()
+        cursor.execute("SELECT * FROM rooms ORDER BY room_id")
+        all_rooms = cursor.fetchall()
+        cursor.execute("SELECT * FROM branches ORDER BY branch_id")
+        all_branches = cursor.fetchall()
+        students_by_branch = {}
+        for branch in all_branches:
+            cursor.execute(
+                "SELECT pin_number, student_id FROM students WHERE branch_id=%s ORDER BY student_id",
+                (branch['branch_id'],))
+            students_by_branch[branch['branch_name']] = cursor.fetchall()
+        branch_names = [b['branch_name'] for b in all_branches]
+        allotment_result = generate_seating(branch_names, students_by_branch, all_rooms)
+        for entry in allotment_result:
+            cursor.execute(
+                "INSERT INTO allotment (room_id, row_no, col_no, student_id, pin_number, branch_name) VALUES (%s,%s,%s,%s,%s,%s)",
+                (entry['room_id'], entry['num_row'], entry['num_col'], entry['student_id'], entry['pin'], entry['branch']))
+        db.commit()
+        flash(f'Seating plan generated! {len(allotment_result)} seats assigned.', 'success')
+        return redirect(url_for('view_chart'))
+    cursor.execute("SELECT * FROM rooms")
+    all_rooms = cursor.fetchall()
+    cursor.execute("""SELECT b.*, COUNT(s.student_id) as actual_students
+        FROM branches b LEFT JOIN students s ON b.branch_id=s.branch_id GROUP BY b.branch_id""")
+    all_branches = cursor.fetchall()
+    db.close()
+    return render_template('generate.html', rooms=all_rooms, branches=all_branches)
 
 # ============================================
 # ROUTE 12: VIEW SEATING CHART
 # ============================================
 @app.route('/view_chart')
+@login_required
 def view_chart():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
     db = get_db()
     cursor = db.cursor(dictionary=True)
     cursor.execute("SELECT * FROM rooms ORDER BY room_id")
@@ -493,6 +601,10 @@ def view_chart():
     db.close()
     return render_template('seating_chart.html', seating_data=seating_data)
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    # Debug mode shows stack traces and lets attackers run arbitrary code
+    # through the browser if the server is ever reachable from outside your
+    # own machine. It defaults to OFF now. Turn it on only for local dev:
+    #   set SEATING_DEBUG=true   (Windows)   /   export SEATING_DEBUG=true (Linux/Mac)
+    debug_mode = os.environ.get("SEATING_DEBUG", "false").lower() == "true"
+    app.run(debug=debug_mode)

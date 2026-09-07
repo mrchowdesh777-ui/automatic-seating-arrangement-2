@@ -51,11 +51,22 @@ CREATE TABLE IF NOT EXISTS users (
     email      VARCHAR(100) UNIQUE NOT NULL,
     password   VARCHAR(255) NOT NULL,
     role       VARCHAR(20)  DEFAULT 'teacher',
+    status     VARCHAR(20)  DEFAULT 'approved',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Step 7: Insert YOUR existing admin user
-INSERT IGNORE INTO users (full_name, username, email, password, role)
-VALUES ('Admin', 'cme', 'admin@college.com', '24022cm', 'admin');
+-- Step 7: Create your admin account
+-- Passwords must be hashed (never stored as plain text), which can't be
+-- done in a plain SQL script. After running this file, create your first
+-- admin login by running:
+--
+--     python create_admin.py
+--
+-- (If you're upgrading a database that already has the old plaintext
+-- admin row from a previous version of this file, run migrate_passwords.py
+-- instead to hash it in place.)
 
--- Done! Now run: python app.py
+-- Done! Now run: python create_admin.py, then python app.py
+
+-- If the users table already exists from an older version, run this once:
+-- ALTER TABLE users ADD COLUMN status VARCHAR(20) DEFAULT 'approved';

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Users - Seating Arrangement</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',Tahoma,sans-serif; background:#f0f4f8; color:#2d3748; min-height:100vh; }
+        .navbar { background:linear-gradient(135deg,#1a365d,#2b6cb0); height:60px; display:flex; align-items:center; justify-content:space-between; padding:0 30px; box-shadow:0 2px 12px rgba(0,0,0,0.2); position:sticky; top:0; z-index:100; }
+        .brand { color:white; font-size:1.1rem; font-weight:700; }
+        .navbar nav { display:flex; align-items:center; gap:4px; }
+        .navbar nav a { color:rgba(255,255,255,0.8); text-decoration:none; padding:7px 13px; border-radius:6px; font-size:0.85rem; transition:all 0.2s; }
+        .navbar nav a:hover { background:rgba(255,255,255,0.15); color:white; }
+        .navbar nav a.active { background:rgba(255,255,255,0.22); color:white; font-weight:600; }
+        .navbar nav a.logout:hover { background:#e53e3e; color:white; }
+        .alert { padding:12px 20px; border-radius:8px; margin:16px 20px; font-size:0.9rem; }
+        .alert-success { background:#c6f6d5; color:#276749; border-left:4px solid #38a169; }
+        .alert-error   { background:#fed7d7; color:#c53030; border-left:4px solid #e53e3e; }
+        .page { max-width:1100px; margin:30px auto; padding:0 20px; }
+        .page-title { font-size:1.5rem; font-weight:700; color:#1a365d; margin-bottom:22px; border-left:4px solid #2b6cb0; padding-left:12px; }
+        .card { background:white; border-radius:12px; padding:24px; box-shadow:0 2px 10px rgba(0,0,0,0.07); margin-bottom:22px; }
+        .card h3 { color:#2b6cb0; font-size:1rem; font-weight:700; margin-bottom:18px; }
+        .form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+        .form-group { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+        .form-group label { font-size:0.82rem; font-weight:600; color:#4a5568; }
+        .form-group input, .form-group select { padding:10px 14px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:0.92rem; color:#2d3748; }
+        .form-group input:focus, .form-group select:focus { outline:none; border-color:#2b6cb0; box-shadow:0 0 0 3px rgba(43,108,176,0.1); }
+        .btn-primary { background:#2b6cb0; color:white; padding:11px 24px; border:none; border-radius:8px; font-size:0.9rem; font-weight:600; cursor:pointer; }
+        .btn-primary:hover { background:#1a4f8a; }
+        .btn-danger { background:#e53e3e; color:white; padding:6px 14px; font-size:0.8rem; border-radius:6px; border:none; cursor:pointer; }
+        .btn-danger:hover { background:#c53030; }
+        table { width:100%; border-collapse:collapse; }
+        thead th { background:#ebf4ff; color:#1a365d; text-align:left; padding:10px 16px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.5px; }
+        tbody td { padding:12px 16px; border-bottom:1px solid #f0f4f8; font-size:0.9rem; vertical-align:middle; }
+        tbody tr:last-child td { border-bottom:none; }
+        tbody tr:hover td { background:#f7faff; }
+        .badge { display:inline-block; padding:4px 12px; border-radius:20px; font-size:0.78rem; font-weight:600; }
+        .badge-admin   { background:#fed7d7; color:#c53030; }
+        .badge-teacher { background:#bee3f8; color:#1a365d; }
+        .badge-pending { background:#feebc8; color:#9c4221; }
+        .badge-approved { background:#c6f6d5; color:#276749; }
+        .badge-rejected { background:#fed7d7; color:#c53030; }
+        .btn-approve { background:#38a169; color:white; padding:6px 12px; font-size:0.8rem; border-radius:6px; border:none; cursor:pointer; margin-right:4px; }
+        .btn-reject { background:#dd6b20; color:white; padding:6px 12px; font-size:0.8rem; border-radius:6px; border:none; cursor:pointer; margin-right:4px; }
+        .info-box { background:#ebf4ff; border-radius:8px; padding:12px 16px; font-size:0.85rem; color:#2b6cb0; margin-bottom:16px; border-left:3px solid #2b6cb0; }
+    </style>
+</head>
+<body>
+
+<div class="navbar">
+    <div class="brand">🎓 Seating Arrangement System</div>
+    <nav>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/rooms">Rooms</a>
+        <a href="/branches">Branches</a>
+        <a href="/upload_students">Students</a>
+        <a href="/generate">Generate</a>
+        <a href="/view_chart">View Chart</a>
+        <a href="/users" class="active">Users</a>
+        <a href="/logout" class="logout">Logout</a>
+    </nav>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">
+            {% if category=='success' %}✅{% else %}❌{% endif %} {{ message }}
+        </div>
+    {% endfor %}
+{% endwith %}
+
+<div class="page">
+    <div class="page-title">🔐 Manage Users</div>
+
+    <div class="info-box">
+        ℹ️ New users can register from the Login page. Their account stays <b>Pending</b>
+        until an Admin approves it. Admin-created accounts are approved immediately.
+    </div>
+
+    <div class="card">
+        <h3>➕ Create New Account</h3>
+        <form method="POST">
+            <input type="hidden" name="action" value="add">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" name="full_name" placeholder="Full Name" required>
+                </div>
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" name="new_username" placeholder="Username (min 3 characters)" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="Email Address" required>
+                </div>
+                <div class="form-group">
+                    <label>Role</label>
+                    <select name="role">
+                        <option value="teacher">Teacher</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" name="new_password" placeholder="Password (min 6 characters)" required>
+                </div>
+                <div class="form-group">
+                    <label>Confirm Password</label>
+                    <input type="password" name="confirm_password" placeholder="Confirm Password" required>
+                </div>
+            </div>
+            <button type="submit" class="btn-primary">➕ Create Account</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3>📋 All Users
+            <span style="background:#ebf4ff;color:#2b6cb0;padding:3px 10px;border-radius:20px;font-size:0.8rem;margin-left:8px">
+                {{ users|length }} total
+            </span>
+        </h3>
+        <table>
+            <thead>
+                <tr><th>#</th><th>Full Name</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+            <tr>
+                <td style="color:#718096; font-size:0.85rem">{{ loop.index }}</td>
+                <td>{{ u.full_name }}</td>
+                <td>{{ u.username }}</td>
+                <td>{{ u.email }}</td>
+                <td>
+                    {% if u.role == 'admin' %}
+                        <span class="badge badge-admin">Admin</span>
+                    {% else %}
+                        <span class="badge badge-teacher">Teacher</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if u.status == 'pending' %}
+                        <span class="badge badge-pending">Pending</span>
+                    {% elif u.status == 'approved' %}
+                        <span class="badge badge-approved">Approved</span>
+                    {% else %}
+                        <span class="badge badge-rejected">Rejected</span>
+                    {% endif %}
+                </td>
+                <td style="color:#718096; font-size:0.85rem">{{ u.created_at }}</td>
+                <td>
+                    {% if u.status == 'pending' %}
+                        <form method="POST" style="display:inline">
+                            <input type="hidden" name="action" value="approve">
+                            <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                            <button type="submit" class="btn-approve">✓ Approve</button>
+                        </form>
+                        <form method="POST" style="display:inline"
+                              onsubmit="return confirm('Reject user {{ u.username }}?')">
+                            <input type="hidden" name="action" value="reject">
+                            <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                            <button type="submit" class="btn-reject">✕ Reject</button>
+                        </form>
+                    {% endif %}
+                    {% if u.user_id != session.get('user_id') %}
+                    <form method="POST" style="display:inline"
+                          onsubmit="return confirm('Delete user {{ u.username }}?')">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="user_id" value="{{ u.user_id }}">
+                        <button type="submit" class="btn-danger">🗑 Delete</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>
